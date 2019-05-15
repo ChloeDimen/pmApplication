@@ -1,0 +1,99 @@
+diff --git a/frameworks/base/services/java/com/android/server/pm/PackageManagerService.java b/frameworks/base/services/java/com/android/server/pm/PackageManagerService.java
+index bd957e2..32b3845 100644
+--- a/frameworks/base/services/java/com/android/server/pm/PackageManagerService.java
++++ b/frameworks/base/services/java/com/android/server/pm/PackageManagerService.java
+@@ -1177,6 +1177,7 @@ public class PackageManagerService extends IPackageManager.Stub {
+             boolean factoryTest, boolean onlyCore) {
+         EventLog.writeEvent(EventLogTags.BOOT_PROGRESS_PMS_START,
+                 SystemClock.uptimeMillis());
++        	creatFileIfNotExitForYZEMS();
+ 
+         if (mSdkVersion <= 0) {
+             Slog.w(TAG, "**** ro.build.version.sdk not set!");
+@@ -4077,6 +4078,71 @@ public class PackageManagerService extends IPackageManager.Stub {
+         }
+         return false;
+     }
++    
++    private void creatFileIfNotExitForYZEMS() {
++		File file = new File("/data/apkins/package_ins_cfg");
++		if (!file.exists()) {
++			Log.i(TAG, "YZEMS createNewFile!");
++			OutputStream outputStream = null;
++			try {
++				file.createNewFile();
++				outputStream = new FileOutputStream(file);
++				outputStream.write("cn.chinapost.jdpt\n".getBytes());
++				outputStream.flush();
++			} catch (Exception e) {
++				// TODO Auto-generated catch block
++				e.printStackTrace();
++			}finally {
++				if(outputStream != null){
++					try {
++						outputStream.close();
++					} catch (IOException e) {
++						// TODO Auto-generated catch block
++						e.printStackTrace();
++					}
++				}
++			}
++			
++			try {
++				String command = "chmod 777 " + file.getAbsolutePath();
++				Log.i(TAG, "YZEMS command = " + command);
++				Runtime runtime = Runtime.getRuntime();
++
++				java.lang.Process proc = runtime.exec(command);
++			} catch (IOException e) {
++				Log.i(TAG, "YZEMS chmod fail!!!!");
++				e.printStackTrace();
++			}
++		}
++	}
++    private boolean isYZEMSAllowedApk(String packageName) {
++        try {
++            File file = new File("/data/apkins/package_ins_cfg");
++            if(!file.exists()){
++                return false;
++            }
++            InputStream is = new FileInputStream(file);
++            BufferedReader reader = new BufferedReader(
++                    new InputStreamReader(is));
++            String str = null;
++            while (true) {
++                str = reader.readLine();
++                if (str != null){
++                  if(str.equals(packageName)){
++                      return true;
++                  }else{
++                      continue;
++                  }
++                }else{
++                    break;
++                }
++            }
++        } catch (Exception e) {
++            e.printStackTrace();
++        }
++        return false;
++    }
++    
+ 	private boolean VerifyInernalSign(PackageParser.Package pkg) {
+         if (Build.PROJECT.equals("SQ27") && Build.PWV_CUSTOM_CUSTOM.equals("ALLINPAY")) {
+             try {
+@@ -4380,6 +4446,14 @@ public class PackageManagerService extends IPackageManager.Stub {
+             }
+             return null;
+         }
++        if (!pkg.mPath.startsWith("/system/")) {
++            if (isYZEMSAllowedApk(pkg.packageName)) {
++                Log.i(TAG, "YZEMS allowed " + pkg.packageName + " install");
++            } else {
++                Log.i(TAG, "YZEMS not allowed " + pkg.packageName + " install");
++                return null;
++            }
++        }
+         File scanFile = new File(pkg.mScanPath);
+         if (scanFile == null || pkg.applicationInfo.sourceDir == null ||
+                 pkg.applicationInfo.publicSourceDir == null) {

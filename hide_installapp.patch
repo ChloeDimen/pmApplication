@@ -1,0 +1,182 @@
+commit 4a791a21ab4ef40fee3b7d5bd4938564834b009b
+Author: Rocky <jifu.xie@urovo.com>
+Date:   Thu Jun 7 19:27:23 2018 +0800
+
+    [SQ51C][XX][APP][]: 添加第三方安装APP应用权限接口
+    
+    Product:SQ51C
+    Customer:XX
+    Module:APP
+    Bug ID:
+    Key Word:
+    Description:添加第三方安装APP应用权限接口
+    
+    Commit Tools Version:f7b8ba2
+
+diff --git a/frameworks/base/core/res/AndroidManifest.xml b/frameworks/base/core/res/AndroidManifest.xml
+index e41017b..93f2cd3 100644
+--- a/frameworks/base/core/res/AndroidManifest.xml
++++ b/frameworks/base/core/res/AndroidManifest.xml
+@@ -2451,6 +2451,10 @@
+     <p>Not for use by third-party applications. -->
+     <permission android:name="android.permission.INSTALL_PACKAGES"
+         android:protectionLevel="signature|privileged" />
++    <permission android:name="android.permission.HIDE_INSTALL_PACKAGES"
++        android:protectionLevel="normal" />
++    <permission android:name="android.permission.HIDE_UNINSTALL_PACKAGES"
++        android:protectionLevel="normal" />
+ 
+     <!-- @SystemApi Allows an application to clear user data.
+          <p>Not for use by third-party applications
+diff --git a/frameworks/base/core_ex/java/android/device/DeviceManager.java b/frameworks/base/core_ex/java/android/device/DeviceManager.java
+index 22b01da..e69e9cc 100644
+--- a/frameworks/base/core_ex/java/android/device/DeviceManager.java
++++ b/frameworks/base/core_ex/java/android/device/DeviceManager.java
+@@ -308,21 +308,21 @@ public class DeviceManager {
+ 	}
+ */
+ 
+-	public boolean installApplication(String apkFilePath){
+-		try {
+-			IDeviceManagerService mService = IDeviceManagerService.Stub
+-					.asInterface(ServiceManager.getService("DeviceManager"));
+-			return mService.installApplication(apkFilePath);
+-		} catch (android.os.RemoteException e) {
++	public boolean uninstallApplication(String packageName, boolean keepDataAndCache,  IPackageDeleteObserver observer){
++		    try {
++	            IDeviceManagerService mService = IDeviceManagerService.Stub
++	                    .asInterface(ServiceManager.getService("DeviceManager"));
++	           return mService.uninstallApplication(packageName, keepDataAndCache, observer);
++	        } catch (android.os.RemoteException e) {
++	        }
++		    return false;
+ 		}
+-		return false;
+-	}
+ 
+-	public boolean uninstallApplication(String packageName){
++	public boolean installApplication(String apkFilePath, boolean installOnSDCard, IPackageInstallObserver observer) {
+ 		try {
+ 			IDeviceManagerService mService = IDeviceManagerService.Stub
+ 					.asInterface(ServiceManager.getService("DeviceManager"));
+-			return mService.uninstallApplication(packageName);
++			return mService.installApplication(apkFilePath, installOnSDCard, observer);
+ 		} catch (android.os.RemoteException e) {
+ 		}
+ 		return false;
+diff --git a/frameworks/base/core_ex/java/android/os/IDeviceManagerService.aidl b/frameworks/base/core_ex/java/android/os/IDeviceManagerService.aidl
+index b0b6879..c87baf3 100644
+--- a/frameworks/base/core_ex/java/android/os/IDeviceManagerService.aidl
++++ b/frameworks/base/core_ex/java/android/os/IDeviceManagerService.aidl
+@@ -1,6 +1,6 @@
+ package android.os;
+-//import android.content.pm.IPackageInstallObserver;
+-//import android.content.pm.IPackageDeleteObserver;
++import android.content.pm.IPackageInstallObserver;
++import android.content.pm.IPackageDeleteObserver;
+ 
+ interface IDeviceManagerService {
+     void setCurrentTime(long when);
+@@ -34,6 +34,8 @@ interface IDeviceManagerService {
+ 
+     //boolean installApplicationSCGA(String apkFilePath, boolean installOnSDCard, in IPackageInstallObserver observer);
+     //boolean uninstallApplicationSCGA(String packageName, boolean keepDataAndCache, in IPackageDeleteObserver observer);
++    boolean installApplication(String apkFilePath, boolean installOnSDCard, in IPackageInstallObserver observer);
++    boolean uninstallApplication(String packageName, boolean keepDataAndCache, in IPackageDeleteObserver observer);
+     int forbidenUninstallAppInsert(String packageName);
+     int forbidenUninstallAppRemove(String packageName);
+     String forbidenUninstallAppQuery();
+diff --git a/frameworks/base/core_ex/services/core/java/com/android/server/DeviceManagerService.java b/frameworks/base/core_ex/services/core/java/com/android/server/DeviceManagerService.java
+index 1a2ee41..c2f0e6a 100644
+--- a/frameworks/base/core_ex/services/core/java/com/android/server/DeviceManagerService.java
++++ b/frameworks/base/core_ex/services/core/java/com/android/server/DeviceManagerService.java
+@@ -785,10 +785,44 @@ public class DeviceManagerService extends IDeviceManagerService.Stub{
+         audiomanage.setStreamVolume(streamType, index, flags);
+     }
+ 
+-    public boolean installApplication(String apkFilePath){
++    public boolean installApplication(String apkFilePath, boolean installOnSDCard, IPackageInstallObserver observer){
++        long id = Binder.clearCallingIdentity();
++        if(!TextUtils.isEmpty(apkFilePath)){
++            try {
++                int installFlags = 0;
++                Uri packageUri = Uri.fromFile(new File(apkFilePath));
++                PackageManager pm = mContext.getPackageManager();
++                installFlags |= PackageManager.INSTALL_REPLACE_EXISTING;
++                if(installOnSDCard)
++                    installFlags |= PackageManager.INSTALL_EXTERNAL;
++                PackageInfo info = pm.getPackageArchiveInfo(apkFilePath, PackageManager.GET_ACTIVITIES);
++                if(info != null){
++                    pm.installPackage(packageUri, observer, installFlags, info.applicationInfo.packageName);
++                    Binder.restoreCallingIdentity(id);
++                    return true;
++                }
++                return false;
++
++
++            } catch (Exception e) {
++                return false;
++            }
++        }
+         return false;
++
+     }
+-    public boolean uninstallApplication(String packageName){
++    public boolean uninstallApplication(String packageName, boolean keepDataAndCache, IPackageDeleteObserver observer){
++        long id = Binder.clearCallingIdentity();
++        if(!TextUtils.isEmpty(packageName)){
++            PackageManager pm = mContext.getPackageManager();
++            int installFlags = 0;
++            if(keepDataAndCache){
++                installFlags |= PackageManager.DELETE_KEEP_DATA;
++            }
++            pm.deletePackage(packageName,observer,installFlags);
++            Binder.restoreCallingIdentity(id);
++            return true;
++        }
+         return false;
+     }
+ 
+diff --git a/frameworks/base/services/core/java/com/android/server/pm/PackageManagerService.java b/frameworks/base/services/core/java/com/android/server/pm/PackageManagerService.java
+index a387f5e..f5a6ee1 100755
+--- a/frameworks/base/services/core/java/com/android/server/pm/PackageManagerService.java
++++ b/frameworks/base/services/core/java/com/android/server/pm/PackageManagerService.java
+@@ -11704,7 +11704,13 @@ public class PackageManagerService extends IPackageManager.Stub {
+     public void installPackageAsUser(String originPath, IPackageInstallObserver2 observer,
+             int installFlags, String installerPackageName, int userId) {
+         android.util.SeempLog.record(90);
+-        mContext.enforceCallingOrSelfPermission(android.Manifest.permission.INSTALL_PACKAGES, null);
++        //mContext.enforceCallingOrSelfPermission(android.Manifest.permission.INSTALL_PACKAGES, null);
++        if(mContext.checkCallingPermission(android.Manifest.permission.HIDE_INSTALL_PACKAGES) == PackageManager.PERMISSION_GRANTED) {
++            Slog.i(TAG, "installerPackageName: checkCallingPermission "+installerPackageName);
++        } else {
++            Slog.i(TAG, "installerPackageName: checkCallingPermission PERMISSION_DENIED"+PackageManager.PERMISSION_DENIED);
++            mContext.enforceCallingOrSelfPermission(android.Manifest.permission.INSTALL_PACKAGES, null);
++        }
+ 
+         final int callingUid = Binder.getCallingUid();
+         enforceCrossUserPermission(callingUid, userId,
+@@ -15679,12 +15685,20 @@ public class PackageManagerService extends IPackageManager.Stub {
+     @Override
+     public void deletePackage(final String packageName,
+             final IPackageDeleteObserver2 observer, final int userId, final int deleteFlags) {
+-        mContext.enforceCallingOrSelfPermission(
+-                android.Manifest.permission.DELETE_PACKAGES, null);
++        //mContext.enforceCallingOrSelfPermission(
++        //        android.Manifest.permission.DELETE_PACKAGES, null);
++        boolean thridAPPHideDel = false;
++        if (mContext.checkCallingOrSelfPermission(android.Manifest.permission.HIDE_UNINSTALL_PACKAGES) != PackageManager.PERMISSION_GRANTED) {
++            Slog.d(TAG, "deletePackageAsUser: pkg=" + packageName + " user=" + userId);
++            mContext.enforceCallingOrSelfPermission(
++                    android.Manifest.permission.DELETE_PACKAGES, null);
++        } else {
++            thridAPPHideDel = true;
++        }
+         Preconditions.checkNotNull(packageName);
+         Preconditions.checkNotNull(observer);
+         final int uid = Binder.getCallingUid();
+-        if (!isOrphaned(packageName)
++        if (!thridAPPHideDel && !isOrphaned(packageName)
+                 && !isCallerAllowedToSilentlyUninstall(uid, packageName)) {
+             try {
+                 final Intent intent = new Intent(Intent.ACTION_UNINSTALL_PACKAGE);
